@@ -16,6 +16,15 @@ database_id = "placeholder-set-at-deploy"
 [triggers]
 crons = ["0 15 * * *"] # daily health check (~7am Pacific)
 
+# Custom domains: applied on `wrangler deploy` (auto-creates DNS + certs).
+[[routes]]
+pattern = "api.seanhase.ca"
+custom_domain = true
+
+[[routes]]
+pattern = "admin.seanhase.ca"
+custom_domain = true
+
 [vars]
 SITE_ORIGIN = "https://seanhase.ca"
 ADMIN_ORIGIN = "https://admin.seanhase.ca"
