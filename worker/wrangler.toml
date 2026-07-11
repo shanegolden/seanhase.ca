@@ -1,0 +1,31 @@
+name = "seanhase-api"
+main = "src/index.mjs"
+compatibility_date = "2026-06-01"
+
+# Admin SPA static assets (built by admin/build.mjs into worker/public)
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "seanhase"
+database_id = "placeholder-set-at-deploy"
+
+[triggers]
+crons = ["0 15 * * *"] # daily health check (~7am Pacific)
+
+[vars]
+SITE_ORIGIN = "https://seanhase.ca"
+ADMIN_ORIGIN = "https://admin.seanhase.ca"
+GITHUB_REPO = "shanegolden/seanhase.ca"
+GITHUB_BRANCH = "main"
+
+# Secrets (set via `wrangler secret put`, never in this file):
+#   PEPPER            - password hash pepper
+#   GITHUB_PAT        - fine-grained PAT, contents:write on GITHUB_REPO only
+#   RESEND_API_KEY    - optional, unlocks client-facing email
+#
+# Email (added at deploy once Email Routing is enabled on the zone):
+# [[send_email]]
+# name = "MAIL"

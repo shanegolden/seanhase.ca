@@ -1,0 +1,27 @@
+{
+  "name": "seanhase.ca",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "seanhase.ca landing page + booking + CMS (GitHub Pages front, Cloudflare Worker back)",
+  "scripts": {
+    "build:site": "node site/build.mjs",
+    "build:admin": "node admin/build.mjs",
+    "dev:worker": "wrangler dev --config worker/wrangler.toml --persist-to .wrangler-persist",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "e2e": "playwright test",
+    "check": "npm run test && npm run build:site && npm run build:admin"
+  },
+  "dependencies": {
+    "ical.js": "^2.1.0",
+    "luxon": "^3.5.0",
+    "mimetext": "^3.0.24"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "esbuild": "^0.25.12",
+    "vitest": "^3.2.7",
+    "wrangler": "^4.0.0"
+  }
+}

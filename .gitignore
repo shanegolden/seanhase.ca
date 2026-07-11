@@ -1,0 +1,11 @@
+node_modules/
+.wrangler-persist/
+.wrangler/
+dist/
+site/index.html
+worker/public/
+test-results/
+playwright-report/
+.env
+*.local
+.DS_Store
