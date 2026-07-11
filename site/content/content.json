@@ -1,0 +1,55 @@
+{
+  "meta": {
+    "title": "Sean Hase | Massage Therapy",
+    "description": "Book a massage session with Sean Hase, a massage therapy student training to become a Registered Massage Therapist in BC."
+  },
+  "hero": {
+    "eyebrow": "Massage Therapy · Student Practice",
+    "headline": "Feel better. Move better.",
+    "subhead": "Hands-on massage therapy from a dedicated student therapist, currently completing his training to become a Registered Massage Therapist.",
+    "ctaLabel": "Book a session",
+    "secondaryCtaLabel": "Get in touch"
+  },
+  "about": {
+    "heading": "About Sean",
+    "body": "Hi, I'm Sean. I'm currently studying to become a Registered Massage Therapist, building on hands-on experience in performance and rehabilitation settings.\n\nI care about helping people move well, recover faster, and feel at home in their bodies. Every session starts with a conversation about what you need that day, and ends with simple things you can do on your own.\n\nOutside the clinic you'll find me training, getting outside, and learning everything I can about how the body works.",
+    "imagePath": "assets/img/sean.jpg",
+    "imageAlt": "Sean Hase smiling in a black t-shirt"
+  },
+  "services": {
+    "heading": "What to expect",
+    "intro": "Sessions are tailored to you. Here are the most common focuses:",
+    "items": [
+      {
+        "title": "Relaxation massage",
+        "desc": "Slow down, breathe, and let your nervous system reset. Ideal when stress lives in your shoulders.",
+        "detail": "60 minutes"
+      },
+      {
+        "title": "Sport and training recovery",
+        "desc": "Targeted work for tight hips, heavy legs, and overworked backs. Built around your training schedule.",
+        "detail": "60 minutes"
+      },
+      {
+        "title": "Focused problem areas",
+        "desc": "Neck, jaw, low back, or that one spot that never lets go. We spend the whole session where it counts.",
+        "detail": "60 minutes"
+      }
+    ],
+    "note": "Student practice sessions. I am not yet a Registered Massage Therapist; sessions are part of my supervised training practice."
+  },
+  "booking": {
+    "heading": "Book a session",
+    "intro": "Pick a day and time that works for you. You will get an instant confirmation with everything you need."
+  },
+  "contact": {
+    "heading": "Get in touch",
+    "intro": "Questions before you book? Send me a note and I will get back to you soon."
+  },
+  "footer": {
+    "tagline": "Massage therapy with care, in training to serve you better.",
+    "location": "Vancouver, BC",
+    "instagram": "",
+    "email": ""
+  }
+}

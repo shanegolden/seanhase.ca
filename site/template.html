@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{meta.title}}</title>
+<meta name="description" content="{{meta.description}}">
+<meta property="og:title" content="{{meta.title}}">
+<meta property="og:description" content="{{meta.description}}">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://seanhase.ca/">
+<meta property="og:image" content="https://seanhase.ca/{{about.imagePath}}">
+<meta name="theme-color" content="#FAF7F2">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='46' fill='%232E8F8A'/%3E%3Ctext x='50' y='66' font-size='52' font-family='Georgia,serif' fill='%23FAF7F2' text-anchor='middle'%3ES%3C/text%3E%3C/svg%3E">
+<link rel="preload" href="assets/fonts/fraunces-var.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/manrope-var.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/styles.css?v={{build_version}}">
+<script>document.documentElement.classList.add('js'); window.SEANHASE_API = '{{api_base}}';</script>
+</head>
+<body>
+
+<header class="nav" id="top">
+  <div class="nav-inner">
+    <a class="wordmark" href="#top">Sean<span>Hase</span></a>
+    <nav class="nav-links" aria-label="Sections">
+      <a href="#about">About</a>
+      <a href="#sessions">Sessions</a>
+      <a href="#contact">Contact</a>
+    </nav>
+    <a class="btn btn-primary btn-nav" href="#book">{{hero.ctaLabel}}</a>
+  </div>
+</header>
+
+<main>
+  <!-- ============ HERO ============ -->
+  <section class="hero">
+    <div class="contour" aria-hidden="true"></div>
+    <div class="hero-inner">
+      <p class="eyebrow reveal">{{hero.eyebrow}}</p>
+      <h1 class="reveal">{{hero.headline}}</h1>
+      <p class="hero-sub reveal">{{hero.subhead}}</p>
+      <div class="hero-ctas reveal">
+        <a class="btn btn-primary" href="#book">{{hero.ctaLabel}}</a>
+        <a class="btn btn-ghost" href="#contact">{{hero.secondaryCtaLabel}}</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ ABOUT ============ -->
+  <section class="about" id="about">
+    <div class="section-inner about-grid">
+      <div class="about-photo reveal">
+        <img src="{{about.imagePath}}" alt="{{about.imageAlt}}" width="466" height="500" loading="lazy">
+      </div>
+      <div class="about-copy">
+        <h2 class="reveal">{{about.heading}}</h2>
+        <div class="about-body reveal">{{about_body_html}}</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SESSIONS ============ -->
+  <section class="services" id="sessions">
+    <div class="section-inner">
+      <h2 class="reveal">{{services.heading}}</h2>
+      <p class="section-intro reveal">{{services.intro}}</p>
+      <div class="cards">
+        {{services_items_html}}
+      </div>
+      <p class="services-note reveal">{{services.note}}</p>
+    </div>
+  </section>
+
+  <!-- ============ BOOKING ============ -->
+  <section class="booking" id="book">
+    <div class="section-inner">
+      <h2 class="reveal">{{booking.heading}}</h2>
+      <p class="section-intro reveal">{{booking.intro}}</p>
+      <div class="book-card reveal" id="booking-widget" data-state="loading">
+        <div class="bw-loading">
+          <div class="skeleton sk-strip"></div>
+          <div class="skeleton sk-grid"></div>
+          <p class="bw-hint">Loading available times…</p>
+        </div>
+        <div class="bw-error" hidden>
+          <p class="bw-error-msg">Online booking is briefly unavailable.</p>
+          <p>Send me a message below instead and I will get back to you.</p>
+          <a class="btn btn-ghost" href="#contact">Go to contact</a>
+        </div>
+        <div class="bw-main" hidden>
+          <p class="bw-tz" id="bw-tz"></p>
+          <div class="bw-days" id="bw-days" role="tablist" aria-label="Choose a day"></div>
+          <div class="bw-slots" id="bw-slots" aria-live="polite"></div>
+          <form class="bw-form" id="bw-form" hidden>
+            <p class="bw-picked" id="bw-picked"></p>
+            <div class="field-row">
+              <label>Name<input name="name" required maxlength="100" autocomplete="name" placeholder="Your name"></label>
+              <label>Email<input name="email" type="email" required maxlength="200" autocomplete="email" placeholder="you@email.com"></label>
+            </div>
+            <div class="field-row">
+              <label>Phone <span class="opt">(optional)</span><input name="phone" maxlength="40" autocomplete="tel" placeholder="604 555 0123"></label>
+              <label>Anything I should know? <span class="opt">(optional)</span><input name="note" maxlength="500" placeholder="Sore shoulder, first massage, …"></label>
+            </div>
+            <label class="consent">
+              <input type="checkbox" name="consent" required>
+              <span>I consent to my name and contact details being stored to manage this appointment. Details are kept only as long as needed.</span>
+            </label>
+            <div class="bw-form-actions">
+              <button type="submit" class="btn btn-primary" id="bw-submit">Confirm booking</button>
+              <button type="button" class="btn btn-ghost" id="bw-back">Pick a different time</button>
+            </div>
+            <p class="bw-form-error" id="bw-form-error" role="alert" hidden></p>
+          </form>
+          <div class="bw-empty" id="bw-empty" hidden>
+            <p>No open times in the next while. Check back soon, or send a message below.</p>
+          </div>
+        </div>
+        <div class="bw-success" hidden>
+          <div class="check" aria-hidden="true">
+            <svg viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"/><path d="M14 27l8 8 16-17"/></svg>
+          </div>
+          <h3>You're booked!</h3>
+          <p class="bw-success-when" id="bw-success-when"></p>
+          <p class="bw-success-note">Save it to your calendar so you don't forget:</p>
+          <div class="bw-success-actions">
+            <a class="btn btn-primary" id="bw-ics" download="appointment.ics">Add to calendar (.ics)</a>
+            <a class="btn btn-ghost" id="bw-gcal" target="_blank" rel="noopener">Google Calendar</a>
+          </div>
+          <p class="bw-manage-note">Need to cancel or change it later? Keep this private link:<br>
+            <a id="bw-manage-link" class="manage-link"></a></p>
+        </div>
+        <div class="bw-manage" hidden>
+          <h3>Your appointment</h3>
+          <p id="bw-manage-when"></p>
+          <p id="bw-manage-status"></p>
+          <div class="bw-manage-actions">
+            <a class="btn btn-ghost" id="bw-manage-ics" download="appointment.ics" hidden>Add to calendar</a>
+            <button class="btn btn-danger" id="bw-manage-cancel" hidden>Cancel this appointment</button>
+            <a class="btn btn-ghost" href="#book" id="bw-manage-rebook" hidden>Book a new time</a>
+          </div>
+          <p class="bw-form-error" id="bw-manage-error" role="alert" hidden></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CONTACT ============ -->
+  <section class="contact" id="contact">
+    <div class="section-inner contact-grid">
+      <div>
+        <h2 class="reveal">{{contact.heading}}</h2>
+        <p class="section-intro reveal">{{contact.intro}}</p>
+      </div>
+      <form class="contact-card reveal" id="contact-form">
+        <label>Name<input name="name" required maxlength="100" autocomplete="name" placeholder="Your name"></label>
+        <label>Email<input name="email" type="email" required maxlength="200" autocomplete="email" placeholder="you@email.com"></label>
+        <label>Message<textarea name="message" required maxlength="2000" rows="4" placeholder="How can I help?"></textarea></label>
+        <input type="text" name="website" tabindex="-1" autocomplete="off" class="hp" aria-hidden="true">
+        <p class="privacy-line">Your message is sent to Sean and kept only as long as needed to reply.</p>
+        <button type="submit" class="btn btn-primary">Send message</button>
+        <p class="bw-form-error" id="contact-error" role="alert" hidden></p>
+        <p class="contact-success" id="contact-success" hidden>Message sent. Talk soon!</p>
+      </form>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="section-inner footer-grid">
+    <div>
+      <p class="wordmark wordmark-light">Sean<span>Hase</span></p>
+      <p class="footer-tagline">{{footer.tagline}}</p>
+    </div>
+    <div class="footer-meta">
+      <p>{{footer.location}}</p>
+      {{footer_links_html}}
+      <p class="footer-fine">© <span id="year"></span> Sean Hase · seanhase.ca</p>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/site.js?v={{build_version}}" defer></script>
+</body>
+</html>
