@@ -98,6 +98,11 @@ async function adminApi(request, env, ctx, path, isDev) {
     return json({ error: 'missing admin header' }, 403);
   }
 
+  if (path === '/api/admin/status' && method === 'GET') {
+    const existing = await db.prepare('SELECT id FROM admin_user WHERE id = 1').first();
+    return json({ provisioned: !!existing });
+  }
+
   if (path === '/api/admin/bootstrap' && method === 'POST') {
     const existing = await db.prepare('SELECT id FROM admin_user WHERE id = 1').first();
     if (existing) return json({ error: 'already provisioned' }, 409);

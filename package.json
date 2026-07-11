@@ -14,9 +14,11 @@
     "check": "npm run test && npm run build:site && npm run build:admin"
   },
   "dependencies": {
+    "htm": "^3.1.1",
     "ical.js": "^2.1.0",
     "luxon": "^3.5.0",
-    "mimetext": "^3.0.24"
+    "mimetext": "^3.0.24",
+    "preact": "^10.29.7"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.0",
