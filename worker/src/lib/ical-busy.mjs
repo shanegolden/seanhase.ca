@@ -11,9 +11,13 @@ import ICAL from 'ical.js';
 import { DateTime } from 'luxon';
 
 // Iterating always starts at the event's own DTSTART (passing a custom start to
-// ical.js re-anchors the recurrence grid and corrupts the expansion), so the cap
-// must cover years of pre-range occurrences: 5000 daily occurrences ~= 13 years.
-const MAX_OCCURRENCES_PER_EVENT = 5000;
+// ical.js re-anchors the recurrence grid and corrupts the expansion). Two caps,
+// both FAIL-CLOSED (throw -> the calendar layer treats the feed as unavailable
+// instead of silently under-blocking and double-booking Sean):
+//   - total iterations per event: covers ~68 years of a daily event reaching the range
+//   - in-range yields per event: a sane feed never has 1000 blocks in one horizon
+const MAX_ITERATIONS_PER_EVENT = 25_000;
+const MAX_YIELDS_PER_EVENT = 1_000;
 
 export function extractBusy(icsText, rangeStartIso, rangeEndIso, clinicTimezone) {
   const rangeStart = DateTime.fromISO(rangeStartIso, { zone: 'utc' });
@@ -24,6 +28,10 @@ export function extractBusy(icsText, rangeStartIso, rangeEndIso, clinicTimezone)
 
   const jcal = ICAL.parse(icsText);
   const comp = new ICAL.Component(jcal);
+
+  // TimezoneService is a process-global singleton: reset it so a previous feed's
+  // registrations (long-lived Worker isolate) can never leak into this parse.
+  ICAL.TimezoneService.reset();
 
   // Register any VTIMEZONEs so TZID-referenced times convert correctly.
   for (const vtz of comp.getAllSubcomponents('vtimezone')) {
@@ -73,20 +81,33 @@ function expandRecurring(ev, rangeStart, rangeEnd, clinicTimezone, busy) {
   // multi-day event overlapping into the range is not missed.
   const skipBeforeMs = rangeStart.minus({ days: 7 }).toMillis();
   const rangeEndMs = rangeEnd.toMillis();
-  let n = 0;
+  let iterations = 0;
+  let yields = 0;
+  let reachedEnd = false;
   let next;
-  while ((next = iterator.next()) && n < MAX_OCCURRENCES_PER_EVENT) {
-    n++;
+  while ((next = iterator.next())) {
+    if (++iterations > MAX_ITERATIONS_PER_EVENT || yields > MAX_YIELDS_PER_EVENT) break;
     const nextStartMs = toUtcMillis(next, clinicTimezone);
-    if (nextStartMs > rangeEndMs) break;
+    if (nextStartMs > rangeEndMs) {
+      reachedEnd = true;
+      break;
+    }
     if (nextStartMs < skipBeforeMs) continue;
+    yields++;
     let details;
     try {
       details = ev.getOccurrenceDetails(next);
     } catch {
       continue; // EXDATE'd or unresolvable occurrence
     }
+    // A RECURRENCE-ID override can cancel or free a single instance; honor it.
+    if (details.item && isTransparentOrCancelled(details.item)) continue;
     pushOccurrence(details.startDate, details.endDate, rangeStart, rangeEnd, clinicTimezone, busy, ev);
+  }
+  // Cap hit before the range was fully covered: refuse to answer rather than
+  // silently drop busy blocks (which would offer slots that collide).
+  if (next && !reachedEnd) {
+    throw new Error(`recurrence expansion cap exceeded for event ${ev.uid || '?'}`);
   }
 }
 

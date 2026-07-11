@@ -1,6 +1,7 @@
 name = "seanhase-api"
 main = "src/index.mjs"
 compatibility_date = "2026-06-01"
+compatibility_flags = ["nodejs_compat"] # mimetext needs node:path/os shims
 
 # Admin SPA static assets (built by admin/build.mjs into worker/public)
 [assets]
