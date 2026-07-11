@@ -7,10 +7,20 @@
   const $ = (sel, el = document) => el.querySelector(sel);
 
   /* ---------- reveal on scroll ---------- */
-  const io = new IntersectionObserver((entries) => {
-    for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
-  }, { threshold: 0.12 });
-  document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+  const revealAll = () => document.querySelectorAll('.reveal:not(.in)').forEach((el) => el.classList.add('in'));
+  if ('IntersectionObserver' in window) {
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+    }, { threshold: 0.12 });
+    document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+    // Safety net: if the observer never fires (broken/embedded renderers),
+    // content must never stay invisible.
+    setTimeout(() => {
+      if (!document.querySelector('.reveal.in')) revealAll();
+    }, 1500);
+  } else {
+    revealAll();
+  }
   $('#year').textContent = new Date().getFullYear();
 
   /* ---------- shared formatting ---------- */
