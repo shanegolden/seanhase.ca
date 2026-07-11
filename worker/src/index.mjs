@@ -120,7 +120,9 @@ async function adminApi(request, env, ctx, path, isDev) {
   }
 
   if (path === '/api/admin/login' && method === 'POST') {
-    if (!(await rateLimit(db, `login:${ip}`, 5, 15))) return json({ error: 'too many attempts, wait 15 minutes' }, 429);
+    // Request-level throttle only; the real brute-force guard is the account
+    // lockout after 5 consecutive failures (see verifyLogin).
+    if (!(await rateLimit(db, `login:${ip}`, 20, 15))) return json({ error: 'too many attempts, wait 15 minutes' }, 429);
     const body = await readJson(request);
     const result = await verifyLogin(db, String(body.password || ''), env.PEPPER || 'dev-pepper');
     if (!result.ok) {
@@ -377,7 +379,7 @@ async function listSlots(env) {
 async function createBooking(request, env, ctx) {
   const db = env.DB;
   const ip = clientIp(request);
-  if (!(await rateLimit(db, `book:${ip}`, 5, 60))) return json({ error: 'too many booking attempts, try later' }, 429);
+  if (!(await rateLimit(db, `book:${ip}`, 15, 60))) return json({ error: 'too many booking attempts, try later' }, 429);
 
   const body = await readJson(request);
   const name = cleanText(body.name, 100);
@@ -768,7 +770,10 @@ function sanitizeSettingsPatch(body) {
   }
   if (body.calendarFeedUrl != null) {
     const u = String(body.calendarFeedUrl).trim();
-    if (u && !/^https:\/\/.+/i.test(u)) return { error: 'calendar feed must be an https URL' };
+    // https required; plain http is allowed only for loopback (local dev + e2e stubs).
+    if (u && !/^https:\/\/.+/i.test(u) && !/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//i.test(u)) {
+      return { error: 'calendar feed must be an https URL' };
+    }
     out.calendarFeedUrl = u || null;
   }
   if (body.emailProvider != null) {

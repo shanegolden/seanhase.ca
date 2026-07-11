@@ -20,7 +20,11 @@ export async function getBusy(db, settings, rangeStartIso, rangeEndIso, { forceF
   const url = settings.calendarFeedUrl;
   if (!url) return { ok: true, busy: [], degraded: false }; // no feed configured: only internal bookings block
 
-  const cache = await db.prepare('SELECT * FROM ical_cache WHERE id = 1').first();
+  // The cache belongs to ONE feed URL. If Sean changes the URL, everything the
+  // old feed produced is invalid immediately, including the last-known-good
+  // fallback (serving another calendar's busy data would double-book him).
+  let cache = await db.prepare('SELECT * FROM ical_cache WHERE id = 1').first();
+  if (cache && cache.url !== url) cache = null;
   const now = Date.now();
   const cacheAge = cache && cache.fetched_at ? now - new Date(cache.fetched_at).getTime() : Infinity;
 
@@ -33,17 +37,17 @@ export async function getBusy(db, settings, rangeStartIso, rangeEndIso, { forceF
     try {
       icsText = await fetchIcs(url);
       await db.prepare(
-        'INSERT INTO ical_cache (id, fetched_at, ok, payload, last_error, last_error_at) VALUES (1, ?, 1, ?, NULL, NULL) '
-        + 'ON CONFLICT(id) DO UPDATE SET fetched_at = excluded.fetched_at, ok = 1, payload = excluded.payload',
-      ).bind(new Date(now).toISOString(), icsText).run();
+        'INSERT INTO ical_cache (id, url, fetched_at, ok, payload, last_error, last_error_at) VALUES (1, ?, ?, 1, ?, NULL, NULL) '
+        + 'ON CONFLICT(id) DO UPDATE SET url = excluded.url, fetched_at = excluded.fetched_at, ok = 1, payload = excluded.payload',
+      ).bind(url, new Date(now).toISOString(), icsText).run();
     } catch (e) {
       const error = String(e && e.message || e).slice(0, 300);
       await db.prepare(
-        'INSERT INTO ical_cache (id, ok, last_error, last_error_at) VALUES (1, 0, ?, ?) '
+        'INSERT INTO ical_cache (id, url, ok, last_error, last_error_at) VALUES (1, ?, 0, ?, ?) '
         + 'ON CONFLICT(id) DO UPDATE SET last_error = excluded.last_error, last_error_at = excluded.last_error_at',
-      ).bind(error, new Date(now).toISOString()).run();
+      ).bind(url, error, new Date(now).toISOString()).run();
       if (cache && cache.payload && cacheAge < MAX_STALE_MS) {
-        icsText = cache.payload; // last known good, degraded
+        icsText = cache.payload; // last known good FROM THIS URL, degraded
         degraded = true;
       } else {
         return { ok: false, reason: `calendar feed unavailable: ${error}` };

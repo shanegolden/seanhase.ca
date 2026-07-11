@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS draft_images (
 
 CREATE TABLE IF NOT EXISTS ical_cache (
   id INTEGER PRIMARY KEY CHECK (id = 1),
+  url TEXT,                    -- feed URL the cached payload came from
   fetched_at TEXT,
   ok INTEGER NOT NULL DEFAULT 0,
   payload TEXT,                -- raw ics of last GOOD fetch
