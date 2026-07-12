@@ -76,12 +76,14 @@ export async function commitFiles(env, files, message) {
   throw new Error('unreachable');
 }
 
-/** Latest Pages/Actions build state for the repo's deploy workflow. */
+/** Latest DEPLOY workflow state for a commit. Other workflows (ci) also run on
+ *  the same sha; only deploy-pages decides whether the publish is live. */
 export async function latestBuildStatus(env, sinceSha) {
   const [owner, repo] = env.GITHUB_REPO.split('/');
   const runs = await gh(env.GITHUB_PAT, 'GET',
-    `/repos/${owner}/${repo}/actions/runs?per_page=10&branch=${env.GITHUB_BRANCH || 'main'}`);
-  const match = (runs.workflow_runs || []).find((r) => !sinceSha || r.head_sha === sinceSha);
+    `/repos/${owner}/${repo}/actions/runs?per_page=20&branch=${env.GITHUB_BRANCH || 'main'}`);
+  const match = (runs.workflow_runs || []).find((r) => r.name === 'deploy-pages'
+    && (!sinceSha || r.head_sha === sinceSha));
   if (!match) return { state: 'pending' };
   if (match.status !== 'completed') return { state: 'building' };
   return { state: match.conclusion === 'success' ? 'live' : 'build_failed', url: match.html_url };

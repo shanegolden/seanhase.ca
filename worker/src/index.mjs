@@ -47,7 +47,10 @@ export default {
 async function route(request, env, ctx) {
   const url = new URL(request.url);
   const path = url.pathname;
-  const isDev = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+  // DEV_MODE is set by `wrangler dev --var DEV_MODE:1` (local + e2e). Hostname
+  // alone is not enough: with custom-domain routes configured, wrangler dev
+  // presents the first route's hostname to the Worker, not 127.0.0.1.
+  const isDev = env.DEV_MODE === '1' || url.hostname === 'localhost' || url.hostname === '127.0.0.1';
   const adminHost = safeHost(env.ADMIN_ORIGIN);
   const isAdminFace = isDev || url.hostname === adminHost;
   const isApiFace = isDev || url.hostname !== adminHost;
@@ -695,7 +698,10 @@ function corsHeaders(request, env, isDev) {
   if (!origin) return {};
   // localhost origins stay allowed in prod: the public endpoints are unauthenticated
   // by design and this keeps local site previews debuggable against the real API.
-  const allowed = origin === env.SITE_ORIGIN || origin === env.ADMIN_ORIGIN || DEV_ORIGINS.test(origin);
+  // www + the interim GitHub Pages address are also allowed.
+  const extra = ['https://www.seanhase.ca', 'http://www.shanegolden.ca', 'https://www.shanegolden.ca'];
+  const allowed = origin === env.SITE_ORIGIN || origin === env.ADMIN_ORIGIN
+    || extra.includes(origin) || DEV_ORIGINS.test(origin);
   if (!allowed) return {};
   return {
     'access-control-allow-origin': origin,

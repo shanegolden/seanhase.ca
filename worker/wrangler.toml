@@ -11,7 +11,7 @@ binding = "ASSETS"
 [[d1_databases]]
 binding = "DB"
 database_name = "seanhase"
-database_id = "placeholder-set-at-deploy"
+database_id = "7803db4b-374e-42fe-a6a0-9ed3180d0fbf"
 
 [triggers]
 crons = ["0 15 * * *"] # daily health check (~7am Pacific)
@@ -33,9 +33,8 @@ GITHUB_BRANCH = "main"
 
 # Secrets (set via `wrangler secret put`, never in this file):
 #   PEPPER            - password hash pepper
-#   GITHUB_PAT        - fine-grained PAT, contents:write on GITHUB_REPO only
+#   GITHUB_PAT        - token with contents:write on GITHUB_REPO
 #   RESEND_API_KEY    - optional, unlocks client-facing email
-#
-# Email (added at deploy once Email Routing is enabled on the zone):
-# [[send_email]]
-# name = "MAIL"
+
+[[send_email]]
+name = "MAIL"
