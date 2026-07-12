@@ -14,10 +14,13 @@
 
 - `PEPPER` — password-hash pepper. Losing it invalidates the stored password hash;
   recover via the reset-by-email flow after setting a new pepper, or re-bootstrap.
-- `GITHUB_PAT` — fine-grained PAT, contents:read+write on ONLY this repo. **Max
-  lifetime 366 days.** Expiry date is mirrored in CMS Settings so the daily health
-  check emails Sean at <30 days. Renewal: mint a new PAT with identical scope,
-  `wrangler secret put GITHUB_PAT`, update the expiry date in CMS Settings.
+- `GITHUB_PAT` — CURRENTLY Shane's gh CLI OAuth token (deployed 2026-07-11; works,
+  no fixed expiry, but broader scope than needed and dies if `gh auth login` is
+  re-run on Shane's PC). RECOMMENDED SWAP when convenient: fine-grained PAT,
+  contents:read+write + actions:read on ONLY this repo (max lifetime 366 days),
+  `wrangler secret put GITHUB_PAT`, then set the expiry date in CMS Settings so
+  the daily health check emails Sean at <30 days. Publish failures are loud
+  either way (CMS banner + daily alert email).
 - `CF_API_TOKEN` + `CF_ACCOUNT_ID` (optional) — lets the CMS auto-register a new
   notification address as an Email Routing verified destination when Sean changes it.
   Without it, add destinations manually in the Cloudflare dashboard.
@@ -40,6 +43,13 @@ than the CMS retention setting (default 12 months, PIPEDA posture).
   insert. The insert itself is a conditional INSERT with an overlap guard;
   `meta.changes === 0` → 409. Partial UNIQUE index on confirmed slot_start backstops.
 - Changing the feed URL invalidates the cache immediately (keyed by URL).
+
+## Deploy auth (how this was shipped)
+
+Cloudflare actions run through the wrangler OAuth login on Shane's PC
+(`wrangler whoami` shows shane@shanegolden.ca; token auto-refreshes). Its scopes
+cover Workers, D1, custom domains, and Email Routing, but NOT plain DNS record
+edits, which is why the apex/www records for GitHub Pages were added by hand.
 
 ## Common tasks
 
