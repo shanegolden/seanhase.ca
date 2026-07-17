@@ -18,8 +18,6 @@ export const SETTING_DEFAULTS = {
   resendApiKey: null,         // optional, unlocks client-facing email
   patExpiresOn: null,         // YYYY-MM-DD, for the health countdown
   siteTitle: 'Sean Hase',
-  resetTokenHash: null,       // self-service password reset (1h expiry)
-  resetTokenExpires: null,
 };
 
 export async function getSettings(db) {

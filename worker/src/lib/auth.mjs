@@ -1,9 +1,10 @@
-// Admin auth: PBKDF2-SHA256 (WebCrypto, native) + per-user salt + server pepper,
-// opaque session tokens stored hashed, fixed-window rate limiting with lockout.
-// Iteration count is tuned to the Workers free-tier CPU budget; the pepper (a
-// Worker secret, absent from D1) is what makes an offline DB-only crack useless.
+// Admin auth (multi-user): PBKDF2-SHA256 (WebCrypto, native) + per-user salt +
+// server pepper, opaque session tokens stored hashed and tied to a user, fixed-
+// window rate limiting, per-user lockout, per-user email reset.
+// Login failures return ONE undifferentiated reason for bad email vs bad
+// password (no account enumeration), with a dummy hash burn to keep timing flat.
 
-const ITERATIONS = 100_000; // measured locally ~15-40ms wall, native WebCrypto
+const ITERATIONS = 100_000; // native WebCrypto; fine inside Workers CPU budget
 const SESSION_DAYS = 30;
 const LOCKOUT_AFTER = 5;
 const LOCKOUT_MINUTES = 15;
@@ -13,6 +14,14 @@ const enc = new TextEncoder();
 export function randomHex(bytes = 32) {
   const a = crypto.getRandomValues(new Uint8Array(bytes));
   return [...a].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Human-friendly but strong generated password (for new accounts). */
+export function generatePassword() {
+  const words = ['harbor', 'cedar', 'tide', 'summit', 'alder', 'coast', 'ridge', 'fern', 'stone', 'creek', 'maple', 'inlet'];
+  const pick = () => words[crypto.getRandomValues(new Uint32Array(1))[0] % words.length];
+  const num = 1000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 9000);
+  return `${pick()}-${pick()}-${pick()}-${num}`;
 }
 
 export async function sha256Hex(text) {
@@ -42,17 +51,50 @@ export function passwordMeetsFloor(pw) {
   return typeof pw === 'string' && pw.length >= 12 && /[a-zA-Z]/.test(pw) && /[0-9]/.test(pw);
 }
 
-export async function createAdmin(db, email, password, pepper, { mustChange = 0 } = {}) {
-  const salt = randomHex(16);
-  const hash = await hashPassword(password, salt, ITERATIONS, pepper);
-  await db.prepare(
-    'INSERT INTO admin_user (id, email, pass_hash, salt, iterations, must_change_pw) VALUES (1, ?, ?, ?, ?, ?)',
-  ).bind(email, hash, salt, ITERATIONS, mustChange).run();
+export function normalizeEmail(email) {
+  return String(email || '').trim().toLowerCase();
 }
 
-export async function verifyLogin(db, password, pepper) {
-  const user = await db.prepare('SELECT * FROM admin_user WHERE id = 1').first();
-  if (!user) return { ok: false, reason: 'no_admin' };
+/** Creates a user; returns their id. Emails are stored lowercased; the column
+ *  is COLLATE NOCASE so lookups use the unique index directly. */
+export async function createUser(db, email, password, pepper, { mustChange = 0 } = {}) {
+  const salt = randomHex(16);
+  const hash = await hashPassword(password, salt, ITERATIONS, pepper);
+  const row = await db.prepare(
+    'INSERT INTO admin_users (email, pass_hash, salt, iterations, must_change_pw) VALUES (?, ?, ?, ?, ?) RETURNING id',
+  ).bind(normalizeEmail(email), hash, salt, ITERATIONS, mustChange).first();
+  return row.id;
+}
+
+export async function countUsers(db) {
+  const row = await db.prepare('SELECT COUNT(*) AS n FROM admin_users').first();
+  return row.n;
+}
+
+export async function listUsers(db) {
+  const rows = await db.prepare('SELECT id, email, must_change_pw, created_at FROM admin_users ORDER BY id').all();
+  return rows.results || [];
+}
+
+/** Deletes a user and every session they own. */
+export async function deleteUser(db, userId) {
+  await db.batch([
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(userId),
+    db.prepare('DELETE FROM admin_users WHERE id = ?').bind(userId),
+  ]);
+}
+
+const DUMMY_SALT = 'a3b1c2d4e5f60718293a4b5c6d7e8f90';
+
+export async function verifyLogin(db, email, password, pepper) {
+  const user = await db.prepare('SELECT * FROM admin_users WHERE email = ?')
+    .bind(normalizeEmail(email)).first();
+  if (!user) {
+    // Burn a hash anyway: unknown-email and wrong-password take the same time
+    // and return the same reason.
+    await hashPassword(password, DUMMY_SALT, ITERATIONS, pepper);
+    return { ok: false, reason: 'bad_credentials' };
+  }
   if (user.locked_until && user.locked_until > new Date().toISOString()) {
     return { ok: false, reason: 'locked', until: user.locked_until };
   }
@@ -62,38 +104,50 @@ export async function verifyLogin(db, password, pepper) {
     const lock = fails >= LOCKOUT_AFTER
       ? new Date(Date.now() + LOCKOUT_MINUTES * 60_000).toISOString()
       : null;
-    await db.prepare('UPDATE admin_user SET failed_attempts = ?, locked_until = ? WHERE id = 1')
-      .bind(lock ? 0 : fails, lock).run();
-    return { ok: false, reason: lock ? 'locked' : 'bad_password' };
+    await db.prepare('UPDATE admin_users SET failed_attempts = ?, locked_until = ? WHERE id = ?')
+      .bind(lock ? 0 : fails, lock, user.id).run();
+    return { ok: false, reason: lock ? 'locked' : 'bad_credentials' };
   }
-  await db.prepare('UPDATE admin_user SET failed_attempts = 0, locked_until = NULL WHERE id = 1').run();
+  await db.prepare('UPDATE admin_users SET failed_attempts = 0, locked_until = NULL WHERE id = ?')
+    .bind(user.id).run();
   return { ok: true, user };
 }
 
-export async function setPassword(db, password, pepper) {
+/** Sets a user's password and revokes their OTHER sessions (compromise
+ *  recovery: a stolen cookie must not outlive a password change). Pass the
+ *  current session's token hash to keep exactly that one alive. */
+export async function setPassword(db, userId, password, pepper, { keepSessionTokenHash = null } = {}) {
   const salt = randomHex(16);
   const hash = await hashPassword(password, salt, ITERATIONS, pepper);
-  await db.prepare(
-    'UPDATE admin_user SET pass_hash = ?, salt = ?, iterations = ?, must_change_pw = 0, failed_attempts = 0, locked_until = NULL WHERE id = 1',
-  ).bind(hash, salt, ITERATIONS).run();
+  const stmts = [
+    db.prepare(
+      'UPDATE admin_users SET pass_hash = ?, salt = ?, iterations = ?, must_change_pw = 0, failed_attempts = 0, locked_until = NULL, reset_token_hash = NULL, reset_token_expires = NULL WHERE id = ?',
+    ).bind(hash, salt, ITERATIONS, userId),
+    keepSessionTokenHash
+      ? db.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?').bind(userId, keepSessionTokenHash)
+      : db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(userId),
+  ];
+  await db.batch(stmts);
 }
 
-export async function createSession(db) {
+export async function createSession(db, userId) {
   const token = randomHex(32);
   const tokenHash = await sha256Hex(token);
   const expires = new Date(Date.now() + SESSION_DAYS * 86_400_000).toISOString();
-  await db.prepare('INSERT INTO sessions (token_hash, expires_at) VALUES (?, ?)').bind(tokenHash, expires).run();
+  await db.prepare('INSERT INTO sessions (token_hash, expires_at, user_id) VALUES (?, ?, ?)')
+    .bind(tokenHash, expires, userId).run();
   return { token, expires };
 }
 
+/** Returns the session row (incl. user_id and the session's own token_hash) or
+ *  null. Sessions without a user (pre-migration relics) are treated as dead. */
 export async function checkSession(db, token) {
   if (!token) return null;
   const tokenHash = await sha256Hex(token);
   const nowIso = new Date().toISOString();
   const row = await db.prepare('SELECT * FROM sessions WHERE token_hash = ? AND expires_at > ?')
     .bind(tokenHash, nowIso).first();
-  if (!row) return null;
-  // Rolling expiry, refreshed at most once an hour to keep writes rare.
+  if (!row || !row.user_id) return null;
   if (!row.last_seen || row.last_seen < new Date(Date.now() - 3_600_000).toISOString()) {
     const newExp = new Date(Date.now() + SESSION_DAYS * 86_400_000).toISOString();
     await db.prepare('UPDATE sessions SET last_seen = ?, expires_at = ? WHERE token_hash = ?')
@@ -105,6 +159,30 @@ export async function checkSession(db, token) {
 export async function destroySession(db, token) {
   if (!token) return;
   await db.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(await sha256Hex(token)).run();
+}
+
+/** Stores a reset token on the user's row; returns the raw token, or null if
+ *  the email doesn't belong to an account (caller answers identically). */
+export async function createResetToken(db, email) {
+  const user = await db.prepare('SELECT id FROM admin_users WHERE email = ?')
+    .bind(normalizeEmail(email)).first();
+  if (!user) return null;
+  const token = randomHex(24);
+  await db.prepare('UPDATE admin_users SET reset_token_hash = ?, reset_token_expires = ? WHERE id = ?')
+    .bind(await sha256Hex(token), new Date(Date.now() + 3_600_000).toISOString(), user.id).run();
+  return token;
+}
+
+/** Consumes a reset token: sets the password, clears the token, revokes ALL of
+ *  the user's sessions. Returns true on success. */
+export async function consumeResetToken(db, token, newPassword, pepper) {
+  const tokenHash = await sha256Hex(String(token || ''));
+  const user = await db.prepare(
+    'SELECT id FROM admin_users WHERE reset_token_hash = ? AND reset_token_expires > ?',
+  ).bind(tokenHash, new Date().toISOString()).first();
+  if (!user) return false;
+  await setPassword(db, user.id, newPassword, pepper); // also clears token + sessions
+  return true;
 }
 
 // Fixed-window rate limit: N events per windowMinutes per key. Returns true if allowed.

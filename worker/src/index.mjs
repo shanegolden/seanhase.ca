@@ -12,9 +12,10 @@ import {
   replaceBlackouts, confirmedBookingsBetween, SETTING_DEFAULTS,
 } from './lib/store.mjs';
 import {
-  createAdmin, verifyLogin, setPassword, createSession, checkSession,
-  destroySession, rateLimit, randomHex, sha256Hex, passwordMeetsFloor,
-  timingSafeEqualHex,
+  createUser, countUsers, listUsers, deleteUser, generatePassword,
+  verifyLogin, setPassword, hashPassword, createSession, checkSession,
+  destroySession, createResetToken, consumeResetToken, rateLimit,
+  randomHex, sha256Hex, passwordMeetsFloor, timingSafeEqualHex, normalizeEmail,
 } from './lib/auth.mjs';
 import { getBusy, calendarHealth } from './lib/calendar.mjs';
 import { sendMail } from './lib/email.mjs';
@@ -102,23 +103,21 @@ async function adminApi(request, env, ctx, path, isDev) {
   }
 
   if (path === '/api/admin/status' && method === 'GET') {
-    const existing = await db.prepare('SELECT id FROM admin_user WHERE id = 1').first();
-    return json({ provisioned: !!existing });
+    return json({ provisioned: (await countUsers(db)) > 0 });
   }
 
   if (path === '/api/admin/bootstrap' && method === 'POST') {
-    const existing = await db.prepare('SELECT id FROM admin_user WHERE id = 1').first();
-    if (existing) return json({ error: 'already provisioned' }, 409);
+    if ((await countUsers(db)) > 0) return json({ error: 'already provisioned' }, 409);
     const body = await readJson(request);
     if (!isEmail(body.email) || !passwordMeetsFloor(body.password)) {
       return json({ error: 'valid email and a password of 12+ chars with letters and numbers required' }, 400);
     }
-    await createAdmin(db, body.email.trim(), body.password, env.PEPPER || 'dev-pepper');
+    const userId = await createUser(db, body.email, body.password, env.PEPPER || 'dev-pepper');
     const settings = await getSettings(db);
-    const patch = { notifyEmail: body.email.trim(), notifyEmailStatus: 'unset' };
+    const patch = { notifyEmail: normalizeEmail(body.email), notifyEmailStatus: 'unset' };
     if (!settings.feedToken) patch.feedToken = randomHex(16);
     await saveSettings(db, patch);
-    const s = await createSession(db);
+    const s = await createSession(db, userId);
     return withSessionCookie(json({ ok: true }), s, request);
   }
 
@@ -127,48 +126,41 @@ async function adminApi(request, env, ctx, path, isDev) {
     // lockout after 5 consecutive failures (see verifyLogin).
     if (!(await rateLimit(db, `login:${ip}`, 20, 15))) return json({ error: 'too many attempts, wait 15 minutes' }, 429);
     const body = await readJson(request);
-    const result = await verifyLogin(db, String(body.password || ''), env.PEPPER || 'dev-pepper');
+    const result = await verifyLogin(db, String(body.email || ''), String(body.password || ''), env.PEPPER || 'dev-pepper');
     if (!result.ok) {
-      const msg = result.reason === 'locked' ? 'account locked for 15 minutes'
-        : result.reason === 'no_admin' ? 'not provisioned yet' : 'wrong password';
+      // One message for unknown email AND wrong password: no account probing.
+      const msg = result.reason === 'locked' ? 'account locked for 15 minutes' : 'wrong email or password';
       return json({ error: msg }, 401);
     }
-    const s = await createSession(db);
+    const s = await createSession(db, result.user.id);
     return withSessionCookie(json({ ok: true, mustChangePassword: !!result.user.must_change_pw }), s, request);
   }
 
   if (path === '/api/admin/reset-request' && method === 'POST') {
     if (!(await rateLimit(db, `reset:${ip}`, 3, 60))) return json({ error: 'too many reset requests' }, 429);
-    const settings = await getSettings(db);
-    const user = await db.prepare('SELECT email FROM admin_user WHERE id = 1').first();
-    if (user && settings.notifyEmail) {
-      const token = randomHex(24);
-      await saveSettings(db, {
-        resetTokenHash: await sha256Hex(token),
-        resetTokenExpires: new Date(Date.now() + 3_600_000).toISOString(),
-      });
-      await sendMail(env, db, settings, {
-        to: settings.notifyEmail,
-        subject: 'Reset your seanhase.ca admin password',
-        kind: 'reset',
-        text: `Someone (hopefully you) asked to reset the admin password.\n\nOpen this link within 1 hour:\n${env.ADMIN_ORIGIN}/#reset=${token}\n\nIf this wasn't you, you can ignore this email.`,
-      });
+    const body = await readJson(request);
+    if (isEmail(body.email)) {
+      const token = await createResetToken(db, body.email);
+      if (token) {
+        const settings = await getSettings(db);
+        // The reset link goes to the ACCOUNT's own email, not the site
+        // notification address.
+        await sendMail(env, db, settings, {
+          to: normalizeEmail(body.email),
+          subject: 'Reset your seanhase.ca admin password',
+          kind: 'reset',
+          text: `Someone (hopefully you) asked to reset your seanhase.ca admin password.\n\nOpen this link within 1 hour:\n${env.ADMIN_ORIGIN}/#reset=${token}\n\nIf this wasn't you, you can ignore this email.`,
+        });
+      }
     }
     return json({ ok: true }); // same response either way: no account probing
   }
 
   if (path === '/api/admin/reset' && method === 'POST') {
     const body = await readJson(request);
-    const settings = await getSettings(db);
-    const expired = !settings.resetTokenHash || !settings.resetTokenExpires
-      || settings.resetTokenExpires < new Date().toISOString();
-    if (expired) return json({ error: 'reset link expired, request a new one' }, 400);
-    if (!timingSafeEqualHex(await sha256Hex(String(body.token || '')), settings.resetTokenHash)) {
-      return json({ error: 'invalid reset link' }, 400);
-    }
     if (!passwordMeetsFloor(body.next)) return json({ error: 'new password needs 12+ chars with letters and numbers' }, 400);
-    await setPassword(db, body.next, env.PEPPER || 'dev-pepper');
-    await saveSettings(db, { resetTokenHash: null, resetTokenExpires: null });
+    const ok = await consumeResetToken(db, body.token, body.next, env.PEPPER || 'dev-pepper');
+    if (!ok) return json({ error: 'that reset link is invalid or expired, request a new one' }, 400);
     return json({ ok: true });
   }
 
@@ -184,27 +176,61 @@ async function adminApi(request, env, ctx, path, isDev) {
   }
 
   if (path === '/api/admin/me' && method === 'GET') {
-    const user = await db.prepare('SELECT email, must_change_pw FROM admin_user WHERE id = 1').first();
+    const user = await db.prepare('SELECT email, must_change_pw FROM admin_users WHERE id = ?')
+      .bind(session.user_id).first();
     return json({ ok: true, email: user?.email, mustChangePassword: !!user?.must_change_pw });
   }
 
   if (path === '/api/admin/password' && method === 'POST') {
     const body = await readJson(request);
-    const check = await verifyLogin(db, String(body.current || ''), env.PEPPER || 'dev-pepper');
-    if (!check.ok) return json({ error: 'current password is wrong' }, 403);
+    const user = await db.prepare('SELECT * FROM admin_users WHERE id = ?').bind(session.user_id).first();
+    if (!user) return json({ error: 'account not found' }, 404);
+    const currentHash = await hashPassword(String(body.current || ''), user.salt, user.iterations, env.PEPPER || 'dev-pepper');
+    if (!timingSafeEqualHex(currentHash, user.pass_hash)) return json({ error: 'current password is wrong' }, 403);
     if (!passwordMeetsFloor(body.next)) return json({ error: 'new password needs 12+ chars with letters and numbers' }, 400);
-    await setPassword(db, body.next, env.PEPPER || 'dev-pepper');
+    // Revokes every OTHER session for this account; the one making this change stays.
+    await setPassword(db, user.id, body.next, env.PEPPER || 'dev-pepper', { keepSessionTokenHash: session.token_hash });
+    return json({ ok: true });
+  }
+
+  if (path === '/api/admin/users' && method === 'GET') {
+    const users = await listUsers(db);
+    return json({
+      users: users.map((u) => ({
+        id: u.id, email: u.email, createdAt: u.created_at,
+        mustChangePassword: !!u.must_change_pw, you: u.id === session.user_id,
+      })),
+    });
+  }
+  if (path === '/api/admin/users' && method === 'POST') {
+    const body = await readJson(request);
+    if (!isEmail(body.email)) return json({ error: 'a valid email is required' }, 400);
+    const email = normalizeEmail(body.email);
+    const existing = await db.prepare('SELECT id FROM admin_users WHERE email = ?').bind(email).first();
+    if (existing) return json({ error: 'an account with that email already exists' }, 409);
+    const password = generatePassword();
+    await createUser(db, email, password, env.PEPPER || 'dev-pepper', { mustChange: 1 });
+    // Best effort: register the address as an Email Routing destination so
+    // password-reset emails can reach it (they get a verification email).
+    ctx.waitUntil(Promise.resolve(registerDestination(env, email)));
+    // The password is shown exactly once, in this response. It is not stored
+    // anywhere in plaintext.
+    return json({ ok: true, email, password }, 201);
+  }
+  const userDel = path.match(/^\/api\/admin\/users\/(\d+)$/);
+  if (userDel && method === 'DELETE') {
+    const id = Number(userDel[1]);
+    if (id === session.user_id) return json({ error: 'you cannot delete the account you are signed in with' }, 400);
+    if ((await countUsers(db)) <= 1) return json({ error: 'cannot delete the last account' }, 400);
+    const target = await db.prepare('SELECT id FROM admin_users WHERE id = ?').bind(id).first();
+    if (!target) return json({ error: 'not found' }, 404);
+    await deleteUser(db, id);
     return json({ ok: true });
   }
 
   if (path === '/api/admin/settings' && method === 'GET') {
     const settings = await getSettings(db);
-    return json({
-      ...settings,
-      resendApiKey: settings.resendApiKey ? 'set' : null,
-      resetTokenHash: undefined,
-      resetTokenExpires: undefined,
-    });
+    return json({ ...settings, resendApiKey: settings.resendApiKey ? 'set' : null });
   }
   if (path === '/api/admin/settings' && method === 'PUT') {
     const body = await readJson(request);

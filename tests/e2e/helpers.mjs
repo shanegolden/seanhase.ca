@@ -20,7 +20,7 @@ export async function adminContext(playwright) {
   });
   if (!boot.ok()) {
     expect(boot.status(), 'bootstrap should 409 only when already provisioned').toBe(409);
-    const login = await ctx.post('/api/admin/login', { data: { password: ADMIN_PASSWORD } });
+    const login = await ctx.post('/api/admin/login', { data: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD } });
     expect(login.ok()).toBeTruthy();
   }
   return ctx;

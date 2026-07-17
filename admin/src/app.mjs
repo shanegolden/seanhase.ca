@@ -73,21 +73,30 @@ function Login({ onDone }) {
     ev.preventDefault();
     setBusy(true); setErr(null);
     try {
-      await api('/api/admin/login', { method: 'POST', body: { password: ev.target.password.value } });
+      await api('/api/admin/login', {
+        method: 'POST',
+        body: { email: ev.target.email.value, password: ev.target.password.value },
+      });
       onDone();
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
-  const forgot = async () => {
-    try { await api('/api/admin/reset-request', { method: 'POST', body: {} }); setResetSent(true); } catch (e) { setErr(e.message); }
+  const forgot = async (ev) => {
+    const email = ev.target.closest('form').email.value;
+    if (!email) { setErr('enter your email first, then tap Forgot password'); return; }
+    try {
+      await api('/api/admin/reset-request', { method: 'POST', body: { email } });
+      setResetSent(true); setErr(null);
+    } catch (e) { setErr(e.message); }
   };
   return html`
     <${AuthCard} title="Sign in">
       <form onSubmit=${submit}>
-        <label>Password<input type="password" name="password" required autofocus /></label>
+        <label>Email<input type="email" name="email" required autofocus autocomplete="username" /></label>
+        <label>Password<input type="password" name="password" required autocomplete="current-password" /></label>
         ${err && html`<p class="error">${err}</p>`}
         <button class="btn primary" disabled=${busy}>${busy ? 'Signing in…' : 'Sign in'}</button>
         <button type="button" class="linkish" onClick=${forgot}>Forgot password?</button>
-        ${resetSent && html`<p class="ok">If the account exists, a reset link was emailed to the notification address.</p>`}
+        ${resetSent && html`<p class="ok">If that email has an account, a reset link is on its way to it.</p>`}
       </form>
     <//>`;
 }
@@ -149,7 +158,9 @@ const TABS = ['Dashboard', 'Content', 'Availability', 'Bookings', 'Settings'];
 function Shell({ onLogout }) {
   const [tab, setTab] = useState('Dashboard');
   const [toast, setToast] = useState(null);
+  const [me, setMe] = useState(null);
   const toastTimer = useRef(null);
+  useEffect(() => { api('/api/admin/me').then(setMe).catch(() => {}); }, []);
   const notify = useCallback((msg, kind = 'ok') => {
     setToast({ msg, kind });
     clearTimeout(toastTimer.current);
@@ -166,8 +177,12 @@ function Shell({ onLogout }) {
         <nav>
           ${TABS.map((t) => html`<button class=${t === tab ? 'tab active' : 'tab'} onClick=${() => setTab(t)}>${t}</button>`)}
         </nav>
-        <button class="linkish" onClick=${logout}>Sign out</button>
+        <button class="linkish" onClick=${logout}>Sign out${me?.email ? ` (${me.email})` : ''}</button>
       </header>
+      ${me?.mustChangePassword && html`
+        <p class="banner warn" style="margin:.8rem auto 0; width:min(880px,94%)">
+          You are using a starter password. Set your own in the <button class="linkish" onClick=${() => setTab('Settings')}>Settings</button> tab.
+        </p>`}
       <main class="content">
         ${tab === 'Dashboard' && html`<${Dashboard} notify=${notify} goTab=${setTab} />`}
         ${tab === 'Content' && html`<${Content} notify=${notify} />`}
@@ -574,8 +589,33 @@ function Bookings({ notify }) {
 
 function Settings({ notify }) {
   const [settings, setSettings] = useState(null);
-  useEffect(() => { api('/api/admin/settings').then(setSettings).catch((e) => notify(e.message, 'err')); }, []);
+  const [users, setUsers] = useState(null);
+  const [newCreds, setNewCreds] = useState(null); // {email, password} shown ONCE
+  const loadUsers = () => api('/api/admin/users').then((d) => setUsers(d.users)).catch(() => {});
+  useEffect(() => {
+    api('/api/admin/settings').then(setSettings).catch((e) => notify(e.message, 'err'));
+    loadUsers();
+  }, []);
   if (!settings) return html`<p class="muted">Loading…</p>`;
+
+  const addUser = async (ev) => {
+    ev.preventDefault();
+    const f = ev.target;
+    try {
+      const r = await api('/api/admin/users', { method: 'POST', body: { email: f.email.value } });
+      setNewCreds(r);
+      f.reset();
+      loadUsers();
+    } catch (e) { notify(e.message, 'err'); }
+  };
+  const removeUser = async (u) => {
+    if (!confirm(`Remove the account for ${u.email}? They will be signed out everywhere.`)) return;
+    try {
+      await api(`/api/admin/users/${u.id}`, { method: 'DELETE' });
+      notify('Account removed');
+      loadUsers();
+    } catch (e) { notify(e.message, 'err'); }
+  };
 
   const save = async (patch) => {
     try {
@@ -597,6 +637,37 @@ function Settings({ notify }) {
 
   return html`
     <h1>Settings</h1>
+
+    <section class="panel">
+      <h2>Accounts</h2>
+      <p class="muted">People who can sign in and manage this site.</p>
+      ${users == null ? html`<p class="muted">Loading…</p>` : html`
+        <table class="table">
+          <thead><tr><th>Email</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            ${users.map((u) => html`
+              <tr>
+                <td>${u.email}${u.you ? html` <span class="chip ok">you</span>` : ''}</td>
+                <td>${u.mustChangePassword ? html`<span class="chip">starter password</span>` : html`<span class="chip ok">active</span>`}</td>
+                <td>${!u.you && html`<button class="linkish danger" onClick=${() => removeUser(u)}>Remove</button>`}</td>
+              </tr>`)}
+          </tbody>
+        </table>`}
+      <form onSubmit=${addUser} style="margin-top:1rem; display:flex; gap:.6rem; align-items:flex-end; flex-wrap:wrap">
+        <label style="flex:1; min-width:220px; margin:0">Add an account by email
+          <input type="email" name="email" required placeholder="person@example.com" />
+        </label>
+        <button class="btn">Add account</button>
+      </form>
+      ${newCreds && html`
+        <div class="banner warn" style="margin-top:1rem">
+          <strong>Write this down now, it is shown only once.</strong><br/>
+          Email: <code>${newCreds.email}</code><br/>
+          Starter password: <code>${newCreds.password}</code>
+          <button class="linkish" onClick=${() => { navigator.clipboard.writeText(`${newCreds.email} / ${newCreds.password}`); notify('Copied'); }}>Copy both</button>
+          <button class="linkish" onClick=${() => setNewCreds(null)}>Dismiss</button>
+        </div>`}
+    </section>
 
     <section class="panel">
       <h2>Notifications</h2>
