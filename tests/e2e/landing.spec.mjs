@@ -32,3 +32,12 @@ test('no horizontal overflow on this viewport', async ({ page }) => {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
 });
+
+test('clicking the wordmark scrolls back to the top (sticky-header anchor bug)', async ({ page }) => {
+  await page.goto('/');
+  // behavior:'instant' bypasses the page's own smooth-scroll CSS in setup.
+  await page.evaluate(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' }));
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(500);
+  await page.click('a.wordmark');
+  await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 5000 }).toBeLessThan(50);
+});
